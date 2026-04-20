@@ -10,8 +10,9 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/components/auth-provider"
+import { cn } from "@/lib/utils"
 
-export function AuthPanel() {
+export function AuthPanel({ compact = false }: { compact?: boolean }) {
   const { user, loading, signInWithEmail, signOut } = useAuth()
   const [email, setEmail] = useState("")
   const [pending, setPending] = useState(false)
@@ -20,7 +21,7 @@ export function AuthPanel() {
     event.preventDefault()
 
     if (!email.trim()) {
-      toast.error("Ingresá tu email para recibir el link.")
+      toast.error("Ingresa tu email para recibir el link.")
       return
     }
 
@@ -31,7 +32,7 @@ export function AuthPanel() {
       toast.success("Te enviamos el link de acceso.")
       setEmail("")
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo iniciar sesión.")
+      toast.error(error instanceof Error ? error.message : "No se pudo iniciar sesion.")
     } finally {
       setPending(false)
     }
@@ -40,14 +41,14 @@ export function AuthPanel() {
   async function handleSignOut() {
     try {
       await signOut()
-      toast.success("Sesión cerrada.")
+      toast.success("Sesion cerrada.")
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo cerrar sesión.")
+      toast.error(error instanceof Error ? error.message : "No se pudo cerrar sesion.")
     }
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Verificando sesión...</p>
+    return <p className="text-sm text-muted-foreground">Verificando sesion...</p>
   }
 
   if (user) {
@@ -68,9 +69,12 @@ export function AuthPanel() {
     <form
       noValidate
       onSubmit={handleSignIn}
-      className="flex w-full min-w-0 flex-col gap-2 sm:ml-auto sm:max-w-sm sm:flex-row sm:items-center"
+      className={cn(
+        "flex w-full min-w-0 gap-2",
+        compact ? "items-center" : "flex-col sm:ml-auto sm:max-w-sm sm:flex-row sm:items-center"
+      )}
     >
-      <FieldGroup className="w-full min-w-0 flex-1">
+      <FieldGroup className={compact ? "w-44 min-w-0 flex-1" : "w-full min-w-0 flex-1"}>
         <Field className="gap-1">
           <FieldLabel htmlFor="email" className="sr-only">
             Email
@@ -79,22 +83,25 @@ export function AuthPanel() {
             id="email"
             type="email"
             inputMode="email"
-            placeholder="tu@email.com"
+            autoComplete="email"
+            placeholder="tu@email.com..."
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            aria-label="Email para iniciar sesión"
+            aria-label="Email para iniciar sesion"
             className="h-10 w-full min-w-0 rounded-full bg-background/80 px-4 shadow-sm"
           />
           <FieldDescription className="sr-only">Ingresa con magic link.</FieldDescription>
         </Field>
       </FieldGroup>
       <Button
-        size="lg"
+        size={compact ? "sm" : "lg"}
         disabled={pending}
-        className="h-10 w-full rounded-full px-4 shadow-sm sm:w-auto"
+        className={cn(
+          compact ? "rounded-xl px-3 shadow-sm" : "h-10 w-full rounded-full px-4 shadow-sm sm:w-auto"
+        )}
       >
         <Mail data-icon="inline-start" />
-        Entrar
+        {compact ? "Login" : "Entrar"}
       </Button>
     </form>
   )

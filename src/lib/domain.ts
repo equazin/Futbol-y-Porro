@@ -34,6 +34,22 @@ export const ROUTES = [
   { href: "/publico", label: "Público" },
 ] as const
 
+export const PRIMARY_MOBILE_ROUTES = [
+  { href: "/", label: "Inicio" },
+  { href: "/partidos", label: "Domingo" },
+  { href: "/votacion", label: "Votar" },
+  { href: "/publico", label: "Ranking" },
+  { href: "/jugadores", label: "Perfil" },
+] as const
+
+export const SECONDARY_ROUTES = [
+  { href: "/stats", label: "Central de rendimiento" },
+  { href: "/fondo", label: "Caja comun" },
+  { href: "/partidos", label: "Historial" },
+  { href: "/admin", label: "Admin" },
+  { href: "/configuracion", label: "Config" },
+] as const
+
 export function scoreLabel(a: number, b: number) {
   return `${a} - ${b}`
 }

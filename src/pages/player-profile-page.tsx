@@ -76,22 +76,26 @@ export function PlayerProfilePage() {
         </Sheet>
       </div>
 
-      <section className="overflow-hidden rounded-[2rem] border bg-primary text-primary-foreground">
-        <div className="pitch-pattern p-6 sm:p-8">
+      <section className="scoreboard overflow-hidden rounded-2xl border border-foreground">
+        <div className="p-5 sm:p-7">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-center gap-4">
-              <PlayerAvatar player={data.profile} className="size-20 border-4 border-primary-foreground/25" />
+              <PlayerAvatar player={data.profile} className="size-20 border-4 border-background/20" />
               <div>
                 <Badge className="mb-2 bg-accent text-accent-foreground hover:bg-accent">
                   {data.profile.posicion ?? "Sin posición"}
                 </Badge>
-                <h1 className="text-4xl font-black tracking-tight">
+                <h1 className="text-4xl font-black tracking-tight text-background">
                   {data.profile.apodo ?? data.profile.nombre}
                 </h1>
-                <p className="text-primary-foreground/75">{data.profile.nombre}</p>
+                <p className="text-background/70">{data.profile.nombre}</p>
               </div>
             </div>
-            <p className="text-5xl font-black tracking-tighter">{data.profile.puntos} pts</p>
+            <div className="grid grid-cols-3 gap-2 text-background sm:min-w-80">
+              <ProfileHeroMetric label="Pts" value={data.profile.puntos} />
+              <ProfileHeroMetric label="Goles" value={data.profile.goles} />
+              <ProfileHeroMetric label="MVP" value={data.profile.mvp_count} />
+            </div>
           </div>
         </div>
       </section>
@@ -104,9 +108,9 @@ export function PlayerProfilePage() {
       </section>
 
       <section className="grid gap-5 lg:grid-cols-[0.75fr_1.25fr]">
-        <Card className="bg-card/86">
+        <Card className="bg-card">
           <CardHeader>
-            <CardTitle>Premios y racha</CardTitle>
+            <CardTitle>Tarjeta competitiva</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
             <Award icon={Star} label="MVPs" value={data.profile.mvp_count} />
@@ -115,7 +119,7 @@ export function PlayerProfilePage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card/86">
+        <Card className="bg-card">
           <CardHeader>
             <CardTitle>Historial</CardTitle>
           </CardHeader>
@@ -216,6 +220,17 @@ function Award({
         <span className="font-semibold">{label}</span>
       </div>
       <span className="text-2xl font-black">{value}</span>
+    </div>
+  )
+}
+
+function ProfileHeroMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl bg-background/10 p-3">
+      <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-background/55">
+        {label}
+      </p>
+      <p className="text-2xl font-black tabular-nums">{value}</p>
     </div>
   )
 }

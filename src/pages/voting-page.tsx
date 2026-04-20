@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react"
-import { CheckCircle2, Crown, Goal, Lock } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { CheckCircle2, Crown, Goal, Lock, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/empty-state"
 import { PlayerAvatar } from "@/components/player-avatar"
 import { useAuth } from "@/components/auth-provider"
@@ -18,7 +18,7 @@ import {
   getVotingMatches,
 } from "@/lib/data"
 import { playerLabel } from "@/lib/domain"
-import type { MatchWithDetails, Vote, VoteType, VoteWindow } from "@/lib/types"
+import type { MatchWithDetails, Player, Vote, VoteType, VoteWindow } from "@/lib/types"
 
 export function VotingPage() {
   const { user } = useAuth()
@@ -29,24 +29,24 @@ export function VotingPage() {
   const [windowInfo, setWindowInfo] = useState<VoteWindow | null>(null)
   const [pending, setPending] = useState(false)
 
-  const selectedMatch = matches?.find((match) => match.id === matchId) ?? null
-  const participants =
-    selectedMatch?.match_players
-      .filter((item) => item.presente && item.players)
-      .map((item) => item.players!)
-      .sort((a, b) => a.nombre.localeCompare(b.nombre)) ?? []
+  const activeMatchId = matchId || matches?.[0]?.id || ""
+  const selectedMatch = matches?.find((match) => match.id === activeMatchId) ?? null
+  const participants = useMemo(() => getParticipants(selectedMatch), [selectedMatch])
+  const linkedPlayer = participants.find((player) => player.auth_user_id === user?.id) ?? null
+  const activeVoterId = voterId || linkedPlayer?.id || ""
+  const selectedVoter = participants.find((player) => player.id === activeVoterId) ?? null
   const hasMvpVote = votes.some((vote) => vote.type === "mvp")
   const hasGoalVote = votes.some((vote) => vote.type === "goal")
-  const selectedVoter = participants.find((player) => player.id === voterId)
+  const completed = hasMvpVote && hasGoalVote
 
   useEffect(() => {
-    if (!matchId || !voterId) {
+    if (!activeMatchId || !activeVoterId) {
       return
     }
 
     let active = true
 
-    Promise.all([getVotesForPlayer(matchId, voterId), getVoteWindow(matchId)])
+    Promise.all([getVotesForPlayer(activeMatchId, activeVoterId), getVoteWindow(activeMatchId)])
       .then(([nextVotes, nextWindow]) => {
         if (active) {
           setVotes(nextVotes)
@@ -60,11 +60,11 @@ export function VotingPage() {
     return () => {
       active = false
     }
-  }, [matchId, voterId])
+  }, [activeMatchId, activeVoterId])
 
   async function handleVote(votedPlayerId: string, type: VoteType) {
-    if (!matchId || !voterId) {
-      toast.error("Elegí partido y votante.")
+    if (!activeMatchId || !activeVoterId) {
+      toast.error("Elegi partido y votante.")
       return
     }
 
@@ -72,167 +72,204 @@ export function VotingPage() {
 
     try {
       await castVote({
-        match_id: matchId,
-        voter_player_id: voterId,
+        match_id: activeMatchId,
+        voter_player_id: activeVoterId,
         voted_player_id: votedPlayerId,
         type,
       })
-      setVotes(await getVotesForPlayer(matchId, voterId))
+      setVotes(await getVotesForPlayer(activeMatchId, activeVoterId))
       toast.success(type === "mvp" ? "Voto MVP registrado." : "Voto gol registrado.")
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo votar.")
+    } catch (voteError) {
+      toast.error(voteError instanceof Error ? voteError.message : "No se pudo votar.")
     } finally {
       setPending(false)
     }
   }
 
   async function handleCloseVoting() {
-    if (!matchId) {
+    if (!activeMatchId) {
       return
     }
 
     setPending(true)
 
     try {
-      await closeVoting(matchId)
-      toast.success("Votación cerrada y premios guardados.")
+      await closeVoting(activeMatchId)
+      toast.success("Votacion cerrada y premios guardados.")
       await reload()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo cerrar la votación.")
+    } catch (closeError) {
+      toast.error(closeError instanceof Error ? closeError.message : "No se pudo cerrar la votacion.")
     } finally {
       setPending(false)
     }
   }
 
   async function handleClaimPlayer() {
-    if (!voterId) {
+    if (!activeVoterId) {
       return
     }
 
     setPending(true)
 
     try {
-      await claimPlayer(voterId)
+      await claimPlayer(activeVoterId)
       toast.success("Jugador vinculado a tu usuario.")
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo vincular el jugador.")
+    } catch (claimError) {
+      toast.error(claimError instanceof Error ? claimError.message : "No se pudo vincular el jugador.")
     } finally {
       setPending(false)
     }
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+    <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
       <section className="flex flex-col gap-4">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary">Votación</p>
-          <h1 className="text-3xl font-black tracking-tight sm:text-5xl">MVP y Gol de la fecha</h1>
-          <p className="text-muted-foreground">Una elección por jugador y por partido.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Boleta</p>
+          <h1 className="text-3xl font-black tracking-tight sm:text-5xl">
+            Votacion de la fecha
+          </h1>
+          <p className="text-muted-foreground">
+            Dos decisiones: MVP y Gol de la fecha. Una vez por jugador.
+          </p>
         </div>
 
         {!user ? (
           <Alert>
             <Lock />
-            <AlertTitle>Necesitás iniciar sesión</AlertTitle>
-            <AlertDescription>Supabase Auth habilita escrituras y el backend valida los votos.</AlertDescription>
+            <AlertTitle>Necesitas iniciar sesion</AlertTitle>
+            <AlertDescription>
+              Entra con magic link para votar y vincular tu perfil de jugador.
+            </AlertDescription>
           </Alert>
         ) : null}
 
-        <Card className="bg-card/86">
+        <Card className="scoreboard border-foreground">
           <CardHeader>
-            <CardTitle>Configurar voto</CardTitle>
-            <CardDescription>Solo aparecen partidos en estado jugado.</CardDescription>
+            <CardTitle className="flex items-center justify-between gap-3 text-background">
+              <span>Tu boleta</span>
+              <Badge className={completed ? "bg-accent text-accent-foreground" : "bg-background/15 text-background hover:bg-background/15"}>
+                {completed ? "Completa" : "Pendiente"}
+              </Badge>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <Selector
-              label="Partido"
-              value={matchId}
-              onChange={(value) => {
-                setMatchId(value)
-                setVoterId("")
-                setVotes([])
-                setWindowInfo(null)
-              }}
-              options={(matches ?? []).map((match) => ({
-                value: match.id,
-                label: match.fecha,
-              }))}
-            />
-            <Selector
-              label="Votante"
-              value={voterId}
-              onChange={(value) => {
-                setVoterId(value)
-                setVotes([])
-                setWindowInfo(null)
-              }}
-              options={participants.map((player) => ({
-                value: player.id,
-                label: playerLabel(player),
-              }))}
-            />
+          <CardContent className="flex flex-col gap-4 text-background">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Selector
+                label="Partido"
+                value={activeMatchId}
+                onChange={(value) => {
+                  setMatchId(value)
+                  setVoterId("")
+                  setVotes([])
+                  setWindowInfo(null)
+                }}
+                options={(matches ?? []).map((match) => ({
+                  value: match.id,
+                  label: match.fecha,
+                }))}
+              />
+              <Selector
+                label="Votante"
+                value={activeVoterId}
+                onChange={(value) => {
+                  setVoterId(value)
+                  setVotes([])
+                  setWindowInfo(null)
+                }}
+                options={participants.map((player) => ({
+                  value: player.id,
+                  label: playerLabel(player),
+                }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <ProgressTile done={hasMvpVote} icon={Crown} label="MVP" />
+              <ProgressTile done={hasGoalVote} icon={Goal} label="Gol" />
+            </div>
+
             {windowInfo ? (
-              <div className="rounded-2xl bg-muted/70 p-4 text-sm">
-                <p>
-                  Abre: <strong>{new Date(windowInfo.opens_at).toLocaleString("es-AR")}</strong>
-                </p>
-                <p>
-                  Cierra: <strong>{new Date(windowInfo.closes_at).toLocaleString("es-AR")}</strong>
-                </p>
+              <div className="rounded-xl bg-background/10 p-3 text-sm text-background/75">
+                <p>Abre: {new Date(windowInfo.opens_at).toLocaleString("es-AR")}</p>
+                <p>Cierra: {new Date(windowInfo.closes_at).toLocaleString("es-AR")}</p>
               </div>
             ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Badge variant={hasMvpVote ? "default" : "secondary"}>
-                {hasMvpVote ? "MVP votado" : "MVP pendiente"}
-              </Badge>
-              <Badge variant={hasGoalVote ? "default" : "secondary"}>
-                {hasGoalVote ? "Gol votado" : "Gol pendiente"}
-              </Badge>
-            </div>
+
             {selectedVoter && !selectedVoter.auth_user_id ? (
               <Button variant="secondary" disabled={!user || pending} onClick={handleClaimPlayer}>
+                <ShieldCheck data-icon="inline-start" />
                 Vincular este jugador a mi usuario
               </Button>
             ) : null}
-            <Button variant="outline" disabled={!matchId || pending} onClick={handleCloseVoting}>
+
+            <Button
+              variant="outline"
+              disabled={!activeMatchId || pending}
+              onClick={handleCloseVoting}
+              className="border-background/25 bg-background/10 text-background hover:bg-background/20 hover:text-background"
+            >
               <CheckCircle2 data-icon="inline-start" />
-              Cerrar votación
+              Cerrar votacion
             </Button>
           </CardContent>
         </Card>
       </section>
 
-      <section>
-        <Card className="bg-card/86">
-          <CardHeader>
-            <CardTitle>Jugadores del partido</CardTitle>
-            <CardDescription>El self-vote se bloquea en UI y también en PostgreSQL.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {loading ? <div className="h-80 animate-pulse rounded-3xl bg-muted" /> : null}
-            {error ? <EmptyState title="No se pudo cargar" description={error} /> : null}
-            {!loading && !matches?.length ? (
-              <EmptyState title="No hay votaciones abiertas" description="Marcá un partido como jugado para votar." />
-            ) : null}
-            {selectedMatch ? (
-              participants.map((player) => (
-                <VoteRow
-                  key={player.id}
-                  player={player}
-                  isSelf={player.id === voterId}
-                  hasMvpVote={hasMvpVote}
-                  hasGoalVote={hasGoalVote}
-                  pending={pending || !user}
-                  onVote={handleVote}
-                />
-              ))
-            ) : (
-              <EmptyState title="Elegí un partido" description="Después seleccioná quién está votando." />
-            )}
-          </CardContent>
-        </Card>
+      <section className="flex flex-col gap-4">
+        {loading ? <div className="h-80 animate-pulse rounded-2xl bg-muted" /> : null}
+        {error ? <EmptyState title="No se pudo cargar" description={error} /> : null}
+        {!loading && !matches?.length ? (
+          <EmptyState title="No hay votaciones abiertas" description="Marca un partido como jugado para abrir la boleta." />
+        ) : null}
+        {selectedMatch ? (
+          <>
+            <CandidateGroup
+              title="Equipo A"
+              players={participants.filter((player) => player.team === "A")}
+              voterId={activeVoterId}
+              hasMvpVote={hasMvpVote}
+              hasGoalVote={hasGoalVote}
+              pending={pending || !user}
+              onVote={handleVote}
+            />
+            <CandidateGroup
+              title="Equipo B"
+              players={participants.filter((player) => player.team === "B")}
+              voterId={activeVoterId}
+              hasMvpVote={hasMvpVote}
+              hasGoalVote={hasGoalVote}
+              pending={pending || !user}
+              onVote={handleVote}
+            />
+          </>
+        ) : (
+          !loading && <EmptyState title="Elegi un partido" description="Despues selecciona quien esta votando." />
+        )}
       </section>
     </div>
+  )
+}
+
+type Candidate = Player & {
+  team: "A" | "B"
+  goals: number
+  assists: number
+  rating: number | null
+}
+
+function getParticipants(match: MatchWithDetails | null): Candidate[] {
+  return (
+    match?.match_players
+      .filter((item) => item.presente && item.players)
+      .map((item) => ({
+        ...item.players!,
+        team: item.equipo,
+        goals: item.goles,
+        assists: item.asistencias,
+        rating: item.calificacion,
+      }))
+      .sort((a, b) => b.goals - a.goals || b.assists - a.assists || a.nombre.localeCompare(b.nombre)) ?? []
   )
 }
 
@@ -248,12 +285,12 @@ function Selector({
   onChange: (value: string) => void
 }) {
   return (
-    <label className="flex flex-col gap-2 text-sm font-semibold">
+    <label className="flex flex-col gap-2 text-sm font-bold text-background">
       {label}
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 rounded-md border bg-background px-3 text-sm"
+        className="h-11 rounded-xl border border-background/20 bg-background/10 px-3 text-sm text-background"
       >
         <option value="">Seleccionar</option>
         {options.map((option) => (
@@ -266,6 +303,72 @@ function Selector({
   )
 }
 
+function ProgressTile({
+  done,
+  icon: Icon,
+  label,
+}: {
+  done: boolean
+  icon: typeof Crown
+  label: string
+}) {
+  return (
+    <div className={done ? "rounded-xl bg-accent p-3 text-accent-foreground" : "rounded-xl bg-background/10 p-3 text-background"}>
+      <Icon className="mb-3 size-5" />
+      <p className="text-xs font-bold uppercase tracking-[0.18em]">{label}</p>
+      <p className="text-sm font-black">{done ? "Votado" : "Pendiente"}</p>
+    </div>
+  )
+}
+
+function CandidateGroup({
+  title,
+  players,
+  voterId,
+  hasMvpVote,
+  hasGoalVote,
+  pending,
+  onVote,
+}: {
+  title: string
+  players: Candidate[]
+  voterId: string
+  hasMvpVote: boolean
+  hasGoalVote: boolean
+  pending: boolean
+  onVote: (playerId: string, type: VoteType) => Promise<void>
+}) {
+  return (
+    <Card className="overflow-hidden bg-card">
+      <CardHeader className="border-b bg-foreground text-background">
+        <CardTitle className="flex items-center justify-between">
+          <span>{title}</span>
+          <Badge className="bg-background/15 text-background hover:bg-background/15">
+            {players.length} candidatos
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 p-3 sm:p-4">
+        {players.length ? (
+          players.map((player) => (
+            <VoteRow
+              key={player.id}
+              player={player}
+              isSelf={player.id === voterId}
+              hasMvpVote={hasMvpVote}
+              hasGoalVote={hasGoalVote}
+              pending={pending}
+              onVote={onVote}
+            />
+          ))
+        ) : (
+          <EmptyState title="Sin jugadores" description="Asigna presentes a este equipo desde Admin." />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function VoteRow({
   player,
   isSelf,
@@ -274,7 +377,7 @@ function VoteRow({
   pending,
   onVote,
 }: {
-  player: NonNullable<MatchWithDetails["match_players"][number]["players"]>
+  player: Candidate
   isSelf: boolean
   hasMvpVote: boolean
   hasGoalVote: boolean
@@ -282,12 +385,14 @@ function VoteRow({
   onVote: (playerId: string, type: VoteType) => Promise<void>
 }) {
   return (
-    <div className="grid gap-3 rounded-2xl border bg-background/70 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className="flex items-center gap-3">
-        <PlayerAvatar player={player} className="size-11" />
+    <div className="grid gap-3 rounded-xl border bg-background/75 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <PlayerAvatar player={player} className="size-12" />
         <div className="min-w-0">
-          <p className="truncate font-bold">{playerLabel(player)}</p>
-          <p className="text-xs text-muted-foreground">{isSelf ? "No podés votarte" : player.posicion ?? "Jugador"}</p>
+          <p className="truncate text-base font-black">{playerLabel(player)}</p>
+          <p className="text-xs text-muted-foreground">
+            {isSelf ? "No podes votarte" : `${player.goals}G · ${player.assists}A · ${player.rating ?? "-"} prom`}
+          </p>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">

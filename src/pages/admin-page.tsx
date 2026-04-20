@@ -1,20 +1,13 @@
-import { type FormEvent, useState } from "react"
-import { Save, Video } from "lucide-react"
+import { type FormEvent, type ReactNode, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
+import { ChevronRight, Goal, Save, Shield, Video } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Field, FieldGroup, FieldLabel, FieldSet, FieldLegend } from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { EmptyState } from "@/components/empty-state"
 import { MediaUpload } from "@/components/media-upload"
@@ -26,94 +19,157 @@ import {
   getMatches,
   getPlayers,
   saveMatchRoster,
-  updateMatch,
 } from "@/lib/data"
 import { playerLabel } from "@/lib/domain"
+import { formatDate } from "@/lib/format"
+import { isoToday } from "@/lib/jornada"
 import type {
   MatchRosterInput,
   MatchStatus,
   MatchWithDetails,
   PlayerProfile,
-  TeamCode,
 } from "@/lib/types"
 
 type RosterDraft = Record<string, MatchRosterInput>
+type StepId = "resultado" | "planteles" | "stats" | "revision"
+
+const steps: { id: StepId; label: string }[] = [
+  { id: "resultado", label: "Resultado" },
+  { id: "planteles", label: "Equipos" },
+  { id: "stats", label: "Stats" },
+  { id: "revision", label: "Publicar" },
+]
 
 export function AdminPage() {
   const playersState = useAsyncData(getPlayers, [])
   const matchesState = useAsyncData(getMatches, [])
+  const [step, setStep] = useState<StepId>("resultado")
   const [pending, setPending] = useState(false)
+  const [matchDraft, setMatchDraft] = useState({
+    fecha: nextSundayDate(),
+    equipo_a_score: 0,
+    equipo_b_score: 0,
+    estado: "jugado" as MatchStatus,
+  })
   const [roster, setRoster] = useState<RosterDraft>({})
+  const selectedRoster = useMemo(
+    () => Object.values(roster).filter((item) => item.presente),
+    [roster]
+  )
+  const teamA = selectedRoster.filter((item) => item.equipo === "A")
+  const teamB = selectedRoster.filter((item) => item.equipo === "B")
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handlePublish(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const selectedRoster = Object.values(roster).filter((item) => item.presente)
 
     if (!selectedRoster.length) {
-      toast.error("Seleccioná al menos un jugador.")
+      toast.error("Selecciona al menos un jugador.")
+      setStep("planteles")
       return
     }
 
     setPending(true)
 
     try {
-      const match = await createMatch({
-        fecha: String(form.get("fecha")),
-        equipo_a_score: Number(form.get("equipo_a_score") ?? 0),
-        equipo_b_score: Number(form.get("equipo_b_score") ?? 0),
-        estado: String(form.get("estado") ?? "jugado") as MatchStatus,
-      })
-
+      const match = await createMatch(matchDraft)
       await saveMatchRoster(match.id, selectedRoster)
-      toast.success("Partido cargado con estadísticas.")
+      toast.success("Jornada publicada.")
       setRoster({})
-      event.currentTarget.reset()
+      setStep("resultado")
+      setMatchDraft({
+        fecha: nextSundayDate(),
+        equipo_a_score: 0,
+        equipo_b_score: 0,
+        estado: "jugado",
+      })
       await matchesState.reload()
       await playersState.reload()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo guardar el partido.")
+      toast.error(error instanceof Error ? error.message : "No se pudo publicar la jornada.")
     } finally {
       setPending(false)
     }
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+    <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
       <section className="flex flex-col gap-4">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary">Admin</p>
-          <h1 className="text-3xl font-black tracking-tight sm:text-5xl">Carga rápida</h1>
-          <p className="text-muted-foreground">Diseñado para completar el domingo desde el celular.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Admin</p>
+          <h1 className="text-3xl font-black tracking-tight sm:text-5xl">
+            Cerrar Domingo
+          </h1>
+          <p className="text-muted-foreground">
+            Un flujo corto para resultado, equipos, estadisticas y publicacion.
+          </p>
         </div>
-        <Card className="bg-card/86">
-          <CardHeader>
-            <CardTitle>Nuevo partido</CardTitle>
-            <CardDescription>Crear partido, equipos y estadísticas individuales.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+
+        <div className="rounded-2xl border bg-card p-3 shadow-sm">
+          <div className="mb-3 h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary transition-[width]"
+              style={{ width: `${((steps.findIndex((item) => item.id === step) + 1) / steps.length) * 100}%` }}
+            />
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {steps.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setStep(item.id)}
+                className={
+                  item.id === step
+                    ? "rounded-xl bg-foreground px-2 py-2 text-xs font-black text-background"
+                    : "rounded-xl bg-muted px-2 py-2 text-xs font-bold text-muted-foreground"
+                }
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handlePublish}>
+          {step === "resultado" ? (
+            <WizardPanel title="1. Resultado y estado">
               <FieldSet>
-                <FieldLegend>Resultado</FieldLegend>
                 <FieldGroup className="grid gap-4 sm:grid-cols-4">
                   <Field className="sm:col-span-2">
                     <FieldLabel htmlFor="fecha">Fecha</FieldLabel>
-                    <Input id="fecha" name="fecha" type="date" required />
+                    <Input
+                      id="fecha"
+                      type="date"
+                      required
+                      value={matchDraft.fecha}
+                      onChange={(event) => setMatchDraft((current) => ({ ...current, fecha: event.target.value }))}
+                    />
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="equipo_a_score">Equipo A</FieldLabel>
-                    <Input id="equipo_a_score" name="equipo_a_score" type="number" min={0} defaultValue={0} />
+                    <Input
+                      id="equipo_a_score"
+                      type="number"
+                      min={0}
+                      value={matchDraft.equipo_a_score}
+                      onChange={(event) => setMatchDraft((current) => ({ ...current, equipo_a_score: Number(event.target.value) }))}
+                    />
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="equipo_b_score">Equipo B</FieldLabel>
-                    <Input id="equipo_b_score" name="equipo_b_score" type="number" min={0} defaultValue={0} />
+                    <Input
+                      id="equipo_b_score"
+                      type="number"
+                      min={0}
+                      value={matchDraft.equipo_b_score}
+                      onChange={(event) => setMatchDraft((current) => ({ ...current, equipo_b_score: Number(event.target.value) }))}
+                    />
                   </Field>
                   <Field className="sm:col-span-4">
                     <FieldLabel htmlFor="estado">Estado</FieldLabel>
                     <select
                       id="estado"
-                      name="estado"
-                      defaultValue="jugado"
+                      value={matchDraft.estado}
+                      onChange={(event) => setMatchDraft((current) => ({ ...current, estado: event.target.value as MatchStatus }))}
                       className="h-10 rounded-md border bg-background px-3 text-sm"
                     >
                       <option value="pendiente">Pendiente</option>
@@ -123,18 +179,54 @@ export function AdminPage() {
                   </Field>
                 </FieldGroup>
               </FieldSet>
+              <StepActions onNext={() => setStep("planteles")} />
+            </WizardPanel>
+          ) : null}
 
-              <FieldSet>
-                <FieldLegend>Jugadores</FieldLegend>
-                {playersState.loading ? (
-                  <div className="h-56 animate-pulse rounded-2xl bg-muted" />
-                ) : playersState.data?.length ? (
-                  <div className="flex flex-col gap-3">
-                    {playersState.data.map((player) => (
+          {step === "planteles" ? (
+            <WizardPanel title="2. Presentes y equipos">
+              {playersState.loading ? (
+                <div className="h-56 animate-pulse rounded-2xl bg-muted" />
+              ) : playersState.data?.length ? (
+                <div className="flex flex-col gap-3">
+                  {playersState.data.map((player) => (
+                    <RosterRow
+                      key={player.id}
+                      player={player}
+                      value={roster[player.id]}
+                      mode="team"
+                      onChange={(nextValue) =>
+                        setRoster((current) => ({
+                          ...current,
+                          [player.id]: nextValue,
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState title="Sin jugadores" description="Primero carga jugadores desde Plantel." />
+              )}
+              <StepActions onBack={() => setStep("resultado")} onNext={() => setStep("stats")} />
+            </WizardPanel>
+          ) : null}
+
+          {step === "stats" ? (
+            <WizardPanel title="3. Goles, asistencias y calificaciones">
+              {selectedRoster.length ? (
+                <div className="flex flex-col gap-3">
+                  {selectedRoster.map((draft) => {
+                    const player = playersState.data?.find((item) => item.id === draft.player_id)
+                    if (!player) {
+                      return null
+                    }
+
+                    return (
                       <RosterRow
                         key={player.id}
                         player={player}
-                        value={roster[player.id]}
+                        value={draft}
+                        mode="stats"
                         onChange={(nextValue) =>
                           setRoster((current) => ({
                             ...current,
@@ -142,176 +234,94 @@ export function AdminPage() {
                           }))
                         }
                       />
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState title="Sin jugadores" description="Primero cargá jugadores desde Plantel." />
-                )}
-              </FieldSet>
-
-              <Button disabled={pending || !playersState.data?.length} size="lg">
-                <Save data-icon="inline-start" />
-                Guardar partido
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <GoalEventPanel matchesState={matchesState} players={playersState.data ?? []} />
-        <Card className="bg-card/86">
-          <CardHeader>
-            <CardTitle>Últimos cargados</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {matchesState.data?.slice(0, 5).map((match) => (
-              <div key={match.id} className="flex items-center justify-between rounded-2xl border bg-background/70 p-3">
-                <div>
-                  <p className="font-bold">{match.fecha}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {match.equipo_a_score}-{match.equipo_b_score}
-                  </p>
+                    )
+                  })}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge>{match.estado}</Badge>
-                  <MatchEditButton
-                    match={match}
-                    players={playersState.data ?? []}
-                    onSaved={async () => {
-                      await matchesState.reload()
-                      await playersState.reload()
-                    }}
-                  />
-                </div>
+              ) : (
+                <EmptyState title="No hay presentes" description="Volve a equipos y selecciona quienes jugaron." />
+              )}
+              <StepActions onBack={() => setStep("planteles")} onNext={() => setStep("revision")} />
+            </WizardPanel>
+          ) : null}
+
+          {step === "revision" ? (
+            <WizardPanel title="4. Revision final">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ReviewTile label="Fecha" value={formatDate(matchDraft.fecha)} />
+                <ReviewTile label="Marcador" value={`${matchDraft.equipo_a_score}-${matchDraft.equipo_b_score}`} />
+                <ReviewTile label="Equipo A" value={`${teamA.length} jugadores`} />
+                <ReviewTile label="Equipo B" value={`${teamB.length} jugadores`} />
               </div>
-            ))}
-          </CardContent>
-        </Card>
+              <div className="rounded-2xl border bg-background/70 p-4 text-sm text-muted-foreground">
+                Publicar crea el partido, guarda planteles y deja la jornada visible para votar,
+                ranking y caja. Para premios finales, abri el detalle del partido despues de publicar.
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="button" variant="outline" onClick={() => setStep("stats")}>
+                  Volver
+                </Button>
+                <Button disabled={pending || !selectedRoster.length} size="lg" className="sm:flex-1">
+                  <Save data-icon="inline-start" />
+                  Publicar Jornada
+                </Button>
+              </div>
+            </WizardPanel>
+          ) : null}
+        </form>
       </section>
+
+      <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
+        <SummaryPanel
+          matchDraft={matchDraft}
+          selectedRoster={selectedRoster}
+          teamA={teamA.length}
+          teamB={teamB.length}
+        />
+        <GoalEventPanel matchesState={matchesState} players={playersState.data ?? []} />
+        <RecentMatches matches={matchesState.data ?? []} />
+      </aside>
     </div>
   )
 }
 
-function MatchEditButton({
-  match,
-  players,
-  onSaved,
-}: {
-  match: MatchWithDetails
-  players: PlayerProfile[]
-  onSaved: () => Promise<void>
-}) {
-  const [open, setOpen] = useState(false)
-  const [pending, setPending] = useState(false)
-  const [roster, setRoster] = useState<RosterDraft>(() =>
-    Object.fromEntries(
-      players.map((player) => {
-        const current = match.match_players.find((item) => item.player_id === player.id)
-        return [
-          player.id,
-          {
-            player_id: player.id,
-            equipo: current?.equipo ?? "A",
-            goles: current?.goles ?? 0,
-            asistencias: current?.asistencias ?? 0,
-            calificacion: current?.calificacion ?? null,
-            presente: current?.presente ?? false,
-          } satisfies MatchRosterInput,
-        ]
-      })
-    )
-  )
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    setPending(true)
-
-    try {
-      await updateMatch(match.id, {
-        fecha: String(form.get("fecha")),
-        equipo_a_score: Number(form.get("equipo_a_score") ?? 0),
-        equipo_b_score: Number(form.get("equipo_b_score") ?? 0),
-        estado: String(form.get("estado") ?? "jugado") as MatchStatus,
-      })
-      await saveMatchRoster(match.id, Object.values(roster))
-      toast.success("Partido actualizado.")
-      setOpen(false)
-      await onSaved()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo actualizar.")
-    } finally {
-      setPending(false)
-    }
-  }
-
+function WizardPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button variant="outline" size="sm" type="button">
-          Editar
+    <Card className="bg-card shadow-sm">
+      <CardHeader className="border-b">
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5 p-4 sm:p-5">{children}</CardContent>
+    </Card>
+  )
+}
+
+function StepActions({ onBack, onNext }: { onBack?: () => void; onNext?: () => void }) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      {onBack ? (
+        <Button type="button" variant="outline" onClick={onBack}>
+          Volver
         </Button>
-      </SheetTrigger>
-      <SheetContent className="overflow-y-auto sm:max-w-3xl">
-        <SheetHeader>
-          <SheetTitle>Editar partido</SheetTitle>
-          <SheetDescription>Corregí resultado, estado y estadísticas.</SheetDescription>
-        </SheetHeader>
-        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-5">
-          <FieldSet>
-            <FieldGroup className="grid gap-4 sm:grid-cols-4">
-              <Field className="sm:col-span-2">
-                <FieldLabel htmlFor={`fecha-${match.id}`}>Fecha</FieldLabel>
-                <Input id={`fecha-${match.id}`} name="fecha" type="date" defaultValue={match.fecha} required />
-              </Field>
-              <Field>
-                <FieldLabel>Equipo A</FieldLabel>
-                <Input name="equipo_a_score" type="number" min={0} defaultValue={match.equipo_a_score} />
-              </Field>
-              <Field>
-                <FieldLabel>Equipo B</FieldLabel>
-                <Input name="equipo_b_score" type="number" min={0} defaultValue={match.equipo_b_score} />
-              </Field>
-              <Field className="sm:col-span-4">
-                <FieldLabel>Estado</FieldLabel>
-                <select name="estado" defaultValue={match.estado} className="h-10 rounded-md border bg-background px-3 text-sm">
-                  <option value="pendiente">Pendiente</option>
-                  <option value="jugado">Jugado</option>
-                  <option value="cerrado">Cerrado</option>
-                </select>
-              </Field>
-            </FieldGroup>
-          </FieldSet>
-          <div className="flex flex-col gap-3">
-            {players.map((player) => (
-              <RosterRow
-                key={player.id}
-                player={player}
-                value={roster[player.id]}
-                onChange={(nextValue) =>
-                  setRoster((current) => ({
-                    ...current,
-                    [player.id]: nextValue,
-                  }))
-                }
-              />
-            ))}
-          </div>
-          <Button disabled={pending}>Guardar edición</Button>
-        </form>
-      </SheetContent>
-    </Sheet>
+      ) : null}
+      {onNext ? (
+        <Button type="button" className="sm:flex-1" onClick={onNext}>
+          Siguiente
+          <ChevronRight data-icon="inline-end" />
+        </Button>
+      ) : null}
+    </div>
   )
 }
 
 function RosterRow({
   player,
   value,
+  mode,
   onChange,
 }: {
   player: PlayerProfile
   value?: MatchRosterInput
+  mode: "team" | "stats"
   onChange: (value: MatchRosterInput) => void
 }) {
   const draft =
@@ -330,60 +340,138 @@ function RosterRow({
   }
 
   return (
-    <div className="grid gap-3 rounded-2xl border bg-background/70 p-3 sm:grid-cols-[auto_1fr]">
-      <div className="flex items-center gap-3">
-        <Checkbox
-          checked={draft.presente}
-          onCheckedChange={(checked) => update({ presente: checked === true })}
-        />
+    <div className="grid gap-3 rounded-2xl border bg-background/75 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        {mode === "team" ? (
+          <Checkbox
+            checked={draft.presente}
+            onCheckedChange={(checked) => update({ presente: checked === true })}
+          />
+        ) : null}
         <PlayerAvatar player={player} className="size-10" />
         <div className="min-w-0">
-          <p className="truncate font-bold">{player.apodo ?? player.nombre}</p>
-          <p className="text-xs text-muted-foreground">{player.posicion ?? "Sin posición"}</p>
+          <p className="truncate font-black">{player.apodo ?? player.nombre}</p>
+          <p className="text-xs text-muted-foreground">{player.posicion ?? "Sin posicion"}</p>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <select
-          aria-label={`Equipo de ${player.nombre}`}
-          value={draft.equipo}
-          onChange={(event) => update({ equipo: event.target.value as TeamCode })}
-          className="h-9 rounded-md border bg-background px-2 text-sm"
-        >
-          <option value="A">A</option>
-          <option value="B">B</option>
-        </select>
-        <Input
-          aria-label={`Goles de ${player.nombre}`}
-          type="number"
-          min={0}
-          value={draft.goles}
-          onChange={(event) => update({ goles: Number(event.target.value) })}
-        />
-        <Input
-          aria-label={`Asistencias de ${player.nombre}`}
-          type="number"
-          min={0}
-          value={draft.asistencias}
-          onChange={(event) => update({ asistencias: Number(event.target.value) })}
-        />
-        <Input
-          aria-label={`Calificación de ${player.nombre}`}
-          type="number"
-          min={1}
-          max={10}
-          step={0.5}
-          placeholder="1-10"
-          value={draft.calificacion ?? ""}
-          onChange={(event) =>
-            update({
-              calificacion: event.target.value ? Number(event.target.value) : null,
-            })
-          }
-        />
-        <Badge variant={draft.presente ? "default" : "secondary"} className="justify-center">
-          {draft.presente ? "Presente" : "Ausente"}
-        </Badge>
+      {mode === "team" ? (
+        <div className="grid grid-cols-2 gap-2">
+          <TeamButton active={draft.presente && draft.equipo === "A"} onClick={() => update({ equipo: "A", presente: true })}>
+            Equipo A
+          </TeamButton>
+          <TeamButton active={draft.presente && draft.equipo === "B"} onClick={() => update({ equipo: "B", presente: true })}>
+            Equipo B
+          </TeamButton>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          <NumberField label="G" value={draft.goles} min={0} onChange={(value) => update({ goles: value })} />
+          <NumberField label="A" value={draft.asistencias} min={0} onChange={(value) => update({ asistencias: value })} />
+          <NumberField label="Prom" value={draft.calificacion ?? ""} min={1} max={10} step={0.5} onChange={(value) => update({ calificacion: value || null })} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TeamButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean
+  children: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={active ? "rounded-xl bg-foreground px-3 py-2 text-sm font-black text-background" : "rounded-xl bg-muted px-3 py-2 text-sm font-bold text-muted-foreground"}
+    >
+      {children}
+    </button>
+  )
+}
+
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string
+  value: number | ""
+  min: number
+  max?: number
+  step?: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+      {label}
+      <Input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        className="h-10 text-base font-black tabular-nums text-foreground"
+      />
+    </label>
+  )
+}
+
+function SummaryPanel({
+  matchDraft,
+  selectedRoster,
+  teamA,
+  teamB,
+}: {
+  matchDraft: { fecha: string; equipo_a_score: number; equipo_b_score: number; estado: MatchStatus }
+  selectedRoster: MatchRosterInput[]
+  teamA: number
+  teamB: number
+}) {
+  const totalGoals = selectedRoster.reduce((sum, item) => sum + item.goles, 0)
+
+  return (
+    <div className="scoreboard rounded-2xl border border-foreground p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-background/55">
+            Resumen sticky
+          </p>
+          <p className="text-2xl font-black text-background">{matchDraft.equipo_a_score}-{matchDraft.equipo_b_score}</p>
+        </div>
+        <Shield className="size-7 text-accent" />
       </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-background">
+        <SummaryMetric label="A/B" value={`${teamA}/${teamB}`} />
+        <SummaryMetric label="Goles" value={String(totalGoals)} />
+        <SummaryMetric label="Estado" value={matchDraft.estado} />
+      </div>
+    </div>
+  )
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-background/10 p-2">
+      <p className="text-[0.65rem] font-bold uppercase text-background/55">{label}</p>
+      <p className="truncate text-lg font-black text-background">{value}</p>
+    </div>
+  )
+}
+
+function ReviewTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border bg-background/70 p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-black">{value}</p>
     </div>
   )
 }
@@ -425,13 +513,15 @@ function GoalEventPanel({
   }
 
   return (
-    <Card className="bg-card/86">
+    <Card className="bg-card">
       <CardHeader>
-        <CardTitle>Gol de la fecha PRO</CardTitle>
-        <CardDescription>Descripción y video opcional para la votación.</CardDescription>
+        <CardTitle className="flex items-center gap-2">
+          <Goal className="size-5" />
+          Gol de la fecha
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleGoal} className="flex flex-col gap-4">
+        <form onSubmit={handleGoal} className="flex flex-col gap-3">
           <FieldSet>
             <FieldGroup>
               <Field>
@@ -457,8 +547,8 @@ function GoalEventPanel({
                 </select>
               </Field>
               <Field>
-                <FieldLabel htmlFor="descripcion">Descripción</FieldLabel>
-                <Textarea id="descripcion" name="descripcion" required placeholder="Zapatazo al ángulo..." />
+                <FieldLabel htmlFor="descripcion">Descripcion</FieldLabel>
+                <Textarea id="descripcion" name="descripcion" required placeholder="Zapatazo al angulo..." />
               </Field>
               <Field>
                 <FieldLabel htmlFor="video_url">Video URL</FieldLabel>
@@ -482,4 +572,37 @@ function GoalEventPanel({
       </CardContent>
     </Card>
   )
+}
+
+function RecentMatches({ matches }: { matches: MatchWithDetails[] }) {
+  return (
+    <Card className="bg-card">
+      <CardHeader>
+        <CardTitle>Ultimos domingos</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {matches.slice(0, 5).map((match) => (
+          <Link
+            key={match.id}
+            to={`/partidos/${match.id}`}
+            className="flex items-center justify-between rounded-xl border bg-background/75 p-3 hover:bg-muted"
+          >
+            <div>
+              <p className="font-bold">{match.fecha}</p>
+              <p className="text-sm text-muted-foreground">{match.equipo_a_score}-{match.equipo_b_score}</p>
+            </div>
+            <Badge>{match.estado}</Badge>
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function nextSundayDate() {
+  const date = new Date()
+  const distance = (7 - date.getDay()) % 7 || 7
+  date.setDate(date.getDate() + distance)
+
+  return date.toISOString().slice(0, 10) || isoToday()
 }
